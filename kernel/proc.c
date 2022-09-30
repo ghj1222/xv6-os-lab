@@ -40,6 +40,7 @@ procinit(void)
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       p->kstack = va;
+      p->mask = 0;
   }
   kvminithart();
 }
@@ -149,6 +150,7 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->mask = 0;
   p->state = UNUSED;
 }
 
@@ -282,6 +284,9 @@ fork(void)
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
+
+  // (Woziji jiade) copy mask stat.
+  np->mask = p->mask;
 
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
@@ -692,4 +697,36 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int qnproc(void)
+{
+  int ret = 0;
+  struct proc *p;
+
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == UNUSED) {
+      ret++;
+    }
+      release(&p->lock);
+    
+  }
+  return ret;
+}
+
+
+
+int qfreefd(void)
+{
+  int fd;
+  uint64 ret = 0;
+  struct proc *p = myproc();
+
+  for(fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd] == 0){
+      ret = ret+1;
+    }
+  }
+  return ret;
 }
