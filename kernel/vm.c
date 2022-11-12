@@ -450,3 +450,33 @@ test_pagetable()
   uint64 gsatp = MAKE_SATP(kernel_pagetable);
   return satp != gsatp;
 }
+
+void vmprint(pagetable_t pgtbl)
+{
+  printf("page table %p\n", pgtbl);
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t *pte1 = pgtbl + i;
+    if (*pte1 & PTE_V) {
+      pagetable_t pa1 = (pagetable_t)PTE2PA(*pte1);
+      printf("||%d: pte %p pa %p\n", i, *pte1, pa1);
+      for (int j = 0; j < 512; j++)
+      {
+        pte_t *pte2 = pa1 + j;
+        if (*pte2 & PTE_V) {
+          pagetable_t pa2 = (pagetable_t)PTE2PA(*pte2);
+          printf("|| ||%d: pte %p pa %p\n", j, *pte2, pa2);
+          for (int k = 0; k < 512; k++)
+          {
+            pte_t *pte3 = pa2 + k;
+            if (*pte3 & PTE_V) {
+              pagetable_t pa3 = (pagetable_t)PTE2PA(*pte3);
+              printf("|| || ||%d: pte %p pa %p\n", k, *pte3, pa3);
+            }
+          }
+        }
+      }
+    }
+
+  }
+}
