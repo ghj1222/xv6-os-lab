@@ -107,7 +107,17 @@ exec(char *path, char **argv)
     if(*s == '/')
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
-    
+  // 清空原来内核页表的用户区，重新分配为现在的用户区
+  kuvmunmap(p->kernel_pagetable, p->sz, 0);
+  if (kuvmmap(p->kernel_pagetable, pagetable, 0, sz) == 0) {
+    kuvmunmap(p->kernel_pagetable, sz, 0);
+    if (kuvmmap(p->kernel_pagetable, p->pagetable, 0, p->sz) == 0) {
+      panic("exec: realloc failed");
+    }
+    goto bad;
+  }
+
+
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;

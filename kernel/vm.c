@@ -303,8 +303,6 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // 清空内核页映射，但是不释放内存。释放页表。
 void kvmfree(pagetable_t pagetable, uint64 sz)
 {
-  int xie_shi_yan_3 = 0;
-  if (xie_shi_yan_3)
   if(sz > 0)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 0);
   freewalk(pagetable);
@@ -390,6 +388,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+  return copyin_new(pagetable, dst, srcva, len);
+/*
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -407,6 +407,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     srcva = va0 + PGSIZE;
   }
   return 0;
+*/
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -416,6 +417,8 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
+  return copyinstr_new(pagetable, dst, srcva, max);
+/*
   uint64 n, va0, pa0;
   int got_null = 0;
 
@@ -450,6 +453,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+*/
 }
 
 // check if use global kpgtbl or not 
@@ -489,4 +493,44 @@ void vmprint(pagetable_t pgtbl)
     }
 
   }
+}
+
+// 将内核页表的[oldsz,newsz)映射到用户页表的相同位置。
+uint64
+kuvmmap(pagetable_t k_pagetable, pagetable_t u_pagetable, uint64 oldsz, uint64 newsz)
+{
+  uint64 a;
+  pte_t *pte;
+  if (newsz < oldsz) return oldsz;
+  oldsz = PGROUNDUP(oldsz);
+
+  for (a = oldsz; a < newsz; a += PGSIZE) {
+      if ((pte = walk(u_pagetable, a, 0)) == 0)
+        panic("kuvmmap: walk");
+      if ((*pte & PTE_V) == 0)
+        panic("kuvmmap: not mapped");
+      if (PTE_FLAGS(*pte) == PTE_V)
+        panic("kuvmmap: not a leaf");
+      uint64 pa = PTE2PA(*pte);
+      if (mappages(k_pagetable, a, PGSIZE, pa, PTE_R | PTE_W) != 0) {
+        kuvmunmap(k_pagetable, a, oldsz);
+        return 0;
+      }
+  }
+  return newsz;
+}
+
+// 将内核页表的[oldsz,newsz)映射取消。
+uint64
+kuvmunmap(pagetable_t k_pagetable, uint64 oldsz, uint64 newsz)
+{
+  if(newsz >= oldsz)
+    return oldsz;
+
+  if(PGROUNDUP(newsz) < PGROUNDUP(oldsz)){
+    int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+    uvmunmap(k_pagetable, PGROUNDUP(newsz), npages, 0);
+  }
+
+  return newsz;
 }
