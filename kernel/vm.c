@@ -300,6 +300,16 @@ uvmfree(pagetable_t pagetable, uint64 sz)
   freewalk(pagetable);
 }
 
+// 清空内核页映射，但是不释放内存。释放页表。
+void kvmfree(pagetable_t pagetable, uint64 sz)
+{
+  int xie_shi_yan_3 = 0;
+  if (xie_shi_yan_3)
+  if(sz > 0)
+    uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 0);
+  freewalk(pagetable);
+}
+
 // Given a parent process's page table, copy
 // its memory into a child's page table.
 // Copies both the page table and the

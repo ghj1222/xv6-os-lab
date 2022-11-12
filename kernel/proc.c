@@ -19,6 +19,8 @@ extern void forkret(void);
 static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
+extern char etext[];  // kernel.ld sets this to end of kernel code.
+
 extern char trampoline[]; // trampoline.S
 
 // initialize the proc table at boot time.
@@ -40,6 +42,7 @@ procinit(void)
       uint64 va = KSTACK((int) (p - proc));
       kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
       p->kstack = va;
+      p->kstack_pa = (uint64)pa;
   }
   kvminithart();
 }
@@ -121,6 +124,15 @@ found:
     return 0;
   }
 
+  // 分配内核页表
+  p->kernel_pagetable = proc_kernel_pagetable(p);
+  if (p->kernel_pagetable == 0)
+  {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -139,6 +151,11 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if (p->kernel_pagetable)
+  {
+    uvmunmap(p->kernel_pagetable, p->kstack, 1, 0);
+    proc_kernel_freepagetable(p->kernel_pagetable, p->sz);
+  }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -473,7 +490,10 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        w_satp(MAKE_SATP(p->kernel_pagetable));
+        sfence_vma();
         swtch(&c->context, &p->context);
+        kvminithart();
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
@@ -696,4 +716,58 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+
+
+// 进程的内核页表，没有内存，但是有内核栈和其它应该有的。
+pagetable_t proc_kernel_pagetable(struct proc *p)
+{
+  // 分配一个页表页。
+  pagetable_t pagetable;
+  pagetable = uvmcreate();
+  if(pagetable == 0) return 0;
+  // 尝试映射对应的区域。
+  if (mappages(pagetable, UART0, PGSIZE, UART0, PTE_R | PTE_W) < 0) goto fail_UART0;
+  if (mappages(pagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) < 0) goto fail_VIRTIO0;
+//  if (mappages(pagetable, CLINT, 0x10000, CLINT, PTE_R | PTE_W) < 0) goto fail_CLINT;
+  if (mappages(pagetable, PLIC, 0x400000, PLIC, PTE_R | PTE_W) < 0) goto fail_PLIC;
+  if (mappages(pagetable, KERNBASE, (uint64)etext-KERNBASE, KERNBASE, PTE_R | PTE_X) < 0) goto fail_kerntext;
+  if (mappages(pagetable, (uint64)etext, PHYSTOP-(uint64)etext, (uint64)etext, PTE_R | PTE_W) < 0) goto fail_data;
+  if (mappages(pagetable, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) < 0) goto fail_trampoline;
+  if (mappages(pagetable, p->kstack, PGSIZE, p->kstack_pa, PTE_R | PTE_W) < 0) goto fail_kernstack;
+  return pagetable;
+
+  // 失败处理部分。
+// fail:
+//  uvmunmap(pagetable, p->kstack, 1, 0);
+fail_kernstack:
+  uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+fail_trampoline:
+  uvmunmap(pagetable, (uint64)etext, (PHYSTOP-(uint64)etext) / PGSIZE, 0);
+fail_data:
+  uvmunmap(pagetable, KERNBASE, ((uint64)etext-KERNBASE) / PGSIZE, 0);
+fail_kerntext:
+  uvmunmap(pagetable, PLIC, 0x400000 / PGSIZE, 0);
+fail_PLIC:
+//  uvmunmap(pagetable, CLINT, 0x10000 / PGSIZE, 0);
+//fail_CLINT:
+  uvmunmap(pagetable, VIRTIO0, 1, 0);
+fail_VIRTIO0:
+  uvmunmap(pagetable, UART0, 1, 0);
+fail_UART0:
+  kvmfree(pagetable, 0);
+  return 0;
+}
+
+void proc_kernel_freepagetable(pagetable_t pagetable, uint64 sz)
+{
+  uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+  uvmunmap(pagetable, (uint64)etext, (PHYSTOP-(uint64)etext) / PGSIZE, 0);
+  uvmunmap(pagetable, KERNBASE, ((uint64)etext-KERNBASE) / PGSIZE, 0);
+  uvmunmap(pagetable, PLIC, 0x400000 / PGSIZE, 0);
+//  uvmunmap(pagetable, CLINT, 0x10000 / PGSIZE, 0);
+  uvmunmap(pagetable, VIRTIO0, 1, 0);
+  uvmunmap(pagetable, UART0, 1, 0);
+  kvmfree(pagetable, sz);
 }
