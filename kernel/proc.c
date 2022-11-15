@@ -265,6 +265,7 @@ growproc(int n)
       return -1;
     }
     if (kuvmmap(p->kernel_pagetable, p->pagetable, sz, sz1) == 0) {
+      uvmdealloc(p->pagetable, sz1, sz);
       return -1;
     }
   } else if(n < 0){
@@ -739,14 +740,14 @@ pagetable_t proc_kernel_pagetable(struct proc *p)
   pagetable = uvmcreate();
   if(pagetable == 0) return 0;
   // 尝试映射对应的区域。
-  if (mappages(pagetable, UART0, PGSIZE, UART0, PTE_R | PTE_W) < 0) goto fail_UART0;
-  if (mappages(pagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) < 0) goto fail_VIRTIO0;
-//  if (mappages(pagetable, CLINT, 0x10000, CLINT, PTE_R | PTE_W) < 0) goto fail_CLINT;
-  if (mappages(pagetable, PLIC, 0x400000, PLIC, PTE_R | PTE_W) < 0) goto fail_PLIC;
-  if (mappages(pagetable, KERNBASE, (uint64)etext-KERNBASE, KERNBASE, PTE_R | PTE_X) < 0) goto fail_kerntext;
-  if (mappages(pagetable, (uint64)etext, PHYSTOP-(uint64)etext, (uint64)etext, PTE_R | PTE_W) < 0) goto fail_data;
-  if (mappages(pagetable, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) < 0) goto fail_trampoline;
-  if (mappages(pagetable, p->kstack, PGSIZE, p->kstack_pa, PTE_R | PTE_W) < 0) goto fail_kernstack;
+  if (atom_mappages(pagetable, UART0, PGSIZE, UART0, PTE_R | PTE_W) < 0) goto fail_UART0;
+  if (atom_mappages(pagetable, VIRTIO0, PGSIZE, VIRTIO0, PTE_R | PTE_W) < 0) goto fail_VIRTIO0;
+//  if (atom_mappages(pagetable, CLINT, 0x10000, CLINT, PTE_R | PTE_W) < 0) goto fail_CLINT;
+  if (atom_mappages(pagetable, PLIC, 0x400000, PLIC, PTE_R | PTE_W) < 0) goto fail_PLIC;
+  if (atom_mappages(pagetable, KERNBASE, (uint64)etext-KERNBASE, KERNBASE, PTE_R | PTE_X) < 0) goto fail_kerntext;
+  if (atom_mappages(pagetable, (uint64)etext, PHYSTOP-(uint64)etext, (uint64)etext, PTE_R | PTE_W) < 0) goto fail_data;
+  if (atom_mappages(pagetable, TRAMPOLINE, PGSIZE, (uint64)trampoline, PTE_R | PTE_X) < 0) goto fail_trampoline;
+  if (atom_mappages(pagetable, p->kstack, PGSIZE, p->kstack_pa, PTE_R | PTE_W) < 0) goto fail_kernstack;
   return pagetable;
 
   // 失败处理部分。

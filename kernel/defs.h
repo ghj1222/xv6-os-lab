@@ -184,6 +184,7 @@ void            vmprint(pagetable_t);
 void            kvmfree(pagetable_t, uint64);
 uint64          kuvmmap(pagetable_t, pagetable_t, uint64, uint64);
 uint64          kuvmunmap(pagetable_t, uint64, uint64);
+int             atom_mappages(pagetable_t, uint64, uint64, uint64, int);
 
 // vmcopyin.c
 int             copyin_new(pagetable_t, char *, uint64, uint64);

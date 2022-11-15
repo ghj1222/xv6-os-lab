@@ -19,6 +19,8 @@ exec(char *path, char **argv)
   struct inode *ip;
   struct proghdr ph;
   pagetable_t pagetable = 0, oldpagetable;
+  pagetable_t kernel_pagetable = 0;
+  pagetable_t old_kernelpagetable;
   struct proc *p = myproc();
 
   begin_op();
@@ -107,23 +109,31 @@ exec(char *path, char **argv)
     if(*s == '/')
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
-  // 清空原来内核页表的用户区，重新分配为现在的用户区
-  kuvmunmap(p->kernel_pagetable, p->sz, 0);
-  if (kuvmmap(p->kernel_pagetable, pagetable, 0, sz) == 0) {
-    kuvmunmap(p->kernel_pagetable, sz, 0);
-    if (kuvmmap(p->kernel_pagetable, p->pagetable, 0, p->sz) == 0) {
-      panic("exec: realloc failed");
-    }
+
+  if ((kernel_pagetable = proc_kernel_pagetable(p)) == 0)
+  {
     goto bad;
   }
 
+  if (kuvmmap(kernel_pagetable, pagetable, 0, sz) == 0)
+  {
+    goto bad;
+  }
+
+  w_satp(MAKE_SATP(kernel_pagetable));
+  sfence_vma();
 
   // Commit to the user image.
   oldpagetable = p->pagetable;
+  old_kernelpagetable = p->kernel_pagetable;
   p->pagetable = pagetable;
+  p->kernel_pagetable = kernel_pagetable;
   p->sz = sz;
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
+
+  uvmunmap(old_kernelpagetable, p->kstack, 1, 0);
+  proc_kernel_freepagetable(old_kernelpagetable, oldsz);
   proc_freepagetable(oldpagetable, oldsz);
 
   if (p->pid == 1) vmprint(p->pagetable);
@@ -131,6 +141,11 @@ exec(char *path, char **argv)
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
+  if (kernel_pagetable)
+  {
+    uvmunmap(kernel_pagetable, p->kstack, 1, 0);
+    proc_kernel_freepagetable(kernel_pagetable, sz);
+  }
   if(pagetable)
     proc_freepagetable(pagetable, sz);
   if(ip){

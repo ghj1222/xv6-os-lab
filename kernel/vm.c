@@ -534,3 +534,28 @@ kuvmunmap(pagetable_t k_pagetable, uint64 oldsz, uint64 newsz)
 
   return newsz;
 }
+
+
+int atom_mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
+{
+  uint64 st, last, a, npages = 0;
+  pte_t *pte;
+
+  st = PGROUNDDOWN(va);
+  last = PGROUNDDOWN(va + size - 1);
+  for (a = st; a <= last; a += PGSIZE, pa += PGSIZE)
+  {
+    if((pte = walk(pagetable, a, 1)) == 0)
+    {
+      if (npages > 0)
+        uvmunmap(pagetable, st, npages, 0);
+      return -1;
+    }
+    if(*pte & PTE_V)
+      panic("remap");
+    *pte = PA2PTE(pa) | perm | PTE_V;
+    npages++;
+  }
+  return 0;
+}
+
